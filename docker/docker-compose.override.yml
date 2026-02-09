@@ -7,5 +7,9 @@ services:
       - MSSQL_MEMORY_LIMIT_MB=2048
 
   rabbitmq:
-    environment:
-      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=512MB
+    # Memory configuration is now handled via RabbitMQ config file
+    # RABBITMQ_VM_MEMORY_HIGH_WATERMARK is deprecated
+    deploy:
+      resources:
+        limits:
+          memory: 512M

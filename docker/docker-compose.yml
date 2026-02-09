@@ -68,6 +68,7 @@ services:
     container_name: posx-seq
     environment:
       - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=Admin@123
     ports:
       - "5341:80"  # Seq UI and ingestion
     volumes:
