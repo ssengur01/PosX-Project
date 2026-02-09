@@ -1,0 +1,124 @@
+@using PosX.Desktop.ApiClient.Models
+@using PosX.Desktop.ApiClient.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject InventoryApiClient InventoryClient
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h6" Class="mb-2">@ProductName</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+            Mevcut Stok: <strong>@InventoryItem.Quantity</strong>
+        </MudText>
+
+        <MudNumericField @bind-Value="_newQuantity"
+                         Label="Yeni Stok Miktarı"
+                         Variant="Variant.Outlined"
+                         Min="0"
+                         Class="mb-4" />
+
+        @if (_newQuantity != InventoryItem.Quantity)
+        {
+            <MudAlert Severity="@(_newQuantity > InventoryItem.Quantity ? Severity.Success : Severity.Warning)" Class="mb-4">
+                @if (_newQuantity > InventoryItem.Quantity)
+                {
+                    <text><strong>+@(_newQuantity - InventoryItem.Quantity)</strong> adet artış</text>
+                }
+                else
+                {
+                    <text><strong>@(InventoryItem.Quantity - _newQuantity)</strong> adet azalış</text>
+                }
+            </MudAlert>
+        }
+
+        <MudTextField @bind-Value="_reason"
+                      Label="Sebep"
+                      Variant="Variant.Outlined"
+                      Lines="3"
+                      Required="true"
+                      Class="mb-4" />
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="@_isProcessing">İptal</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit"
+                   Disabled="@(_isProcessing || string.IsNullOrWhiteSpace(_reason) || _newQuantity == InventoryItem.Quantity)">
+            @if (_isProcessing)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <span class="ml-2">Kaydediliyor...</span>
+            }
+            else
+            {
+                <span>Kaydet</span>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public InventoryItemDto InventoryItem { get; set; } = null!;
+    [Parameter] public string ProductName { get; set; } = string.Empty;
+
+    private int _newQuantity;
+    private string _reason = string.Empty;
+    private bool _isProcessing = false;
+    private string _errorMessage = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _newQuantity = InventoryItem.Quantity;
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task Submit()
+    {
+        _isProcessing = true;
+        _errorMessage = string.Empty;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userName = authState.User.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Name)?.Value ?? "User";
+
+            var request = new AdjustStockRequest(
+                InventoryItem.ProductId,
+                _newQuantity,
+                _reason,
+                userName
+            );
+
+            var success = await InventoryClient.AdjustStockAsync(request);
+
+            if (success)
+            {
+                Snackbar.Add("Stok başarıyla güncellendi", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                _errorMessage = "Stok güncellenirken hata oluştu";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Hata: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}

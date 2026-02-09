@@ -1,0 +1,747 @@
+@page "/sales"
+@attribute [Authorize]
+@using PosX.Desktop.ApiClient.Models
+@using PosX.Desktop.ApiClient.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject ProductsApiClient ProductsClient
+@inject SalesApiClient SalesClient
+@inject CustomersApiClient CustomersClient
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ISnackbar Snackbar
+
+<PageTitle>PosX - Satış</PageTitle>
+
+@if (_currentShift == null)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <MudText>Vardiya açılmamış. Satış yapmak için lütfen vardiya açın.</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenShiftDialog">
+                Vardiya Aç
+            </MudButton>
+        </MudStack>
+    </MudAlert>
+}
+else if (_currentShift.IsOpen)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+            <div>
+                <MudText Typo="Typo.body1"><strong>Vardiya Açık</strong></MudText>
+                <MudText Typo="Typo.body2">Başlangıç: {_currentShift.StartingCash:C2} | Beklenen: {_currentShift.ExpectedCash:C2}</MudText>
+            </div>
+            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="CloseShiftDialog">
+                Vardiya Kapat
+            </MudButton>
+        </MudStack>
+    </MudAlert>
+}
+
+<MudGrid>
+    <MudItem xs="12" md="7">
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">Müşteri</MudText>
+
+            <MudAutocomplete T="CustomerDto"
+                             @bind-Value="_selectedCustomer"
+                             SearchFunc="@SearchCustomers"
+                             ToStringFunc="@(c => c?.DisplayName ?? string.Empty)"
+                             Label="Müşteri Ara (Telefon veya Ad)"
+                             Variant="Variant.Outlined"
+                             Clearable="true"
+                             AdornmentIcon="@Icons.Material.Filled.Search"
+                             AdornmentColor="Color.Primary"
+                             Class="mb-2" />
+
+            @if (_selectedCustomer != null)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <div>
+                            <MudText Typo="Typo.body2"><strong>@_selectedCustomer.FullName</strong></MudText>
+                            <MudText Typo="Typo.caption">@_selectedCustomer.Phone</MudText>
+                        </div>
+                        <MudChip Color="Color.Secondary" Size="Size.Small">
+                            @_selectedCustomer.LoyaltyPoints puan
+                        </MudChip>
+                    </MudStack>
+                </MudAlert>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-4">Ürün Ara</MudText>
+
+            <MudTextField @bind-Value="_searchTerm"
+                          Label="Ürün Adı, SKU veya Barkod"
+                          Variant="Variant.Outlined"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          OnAdornmentClick="SearchProducts"
+                          @onkeydown="OnSearchKeyPress"
+                          Immediate="false"
+                          Class="mb-4" />
+
+            @if (_searchResults != null && _searchResults.Any())
+            {
+                <MudList Clickable="true">
+                    @foreach (var product in _searchResults)
+                    {
+                        <MudListItem OnClick="@(() => AddProductToCart(product))">
+                            <div class="d-flex justify-space-between align-center">
+                                <div>
+                                    <MudText Typo="Typo.body1">@product.Name</MudText>
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                        SKU: @product.SKU
+                                        @if (!string.IsNullOrEmpty(product.Barcode))
+                                        {
+                                            <text> | Barkod: @product.Barcode</text>
+                                        }
+                                    </MudText>
+                                </div>
+                                <div class="text-right">
+                                    <MudText Typo="Typo.h6">@product.Price.ToString("C2")</MudText>
+                                    <MudText Typo="Typo.body2" Color="@(product.StockQuantity > 0 ? Color.Success : Color.Error)">
+                                        Stok: @product.StockQuantity
+                                    </MudText>
+                                </div>
+                            </div>
+                        </MudListItem>
+                        <MudDivider />
+                    }
+                </MudList>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="5">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-4">Sepet</MudText>
+
+            @if (!_cartItems.Any())
+            {
+                <MudText Typo="Typo.body1" Align="Align.Center" Class="my-8" Color="Color.Secondary">
+                    Sepet boş
+                </MudText>
+            }
+            else
+            {
+                <MudList Dense="true">
+                    @foreach (var item in _cartItems)
+                    {
+                        <MudListItem>
+                            <div class="d-flex flex-column" style="width: 100%;">
+                                <div class="d-flex justify-space-between align-center mb-2">
+                                    <MudText Typo="Typo.body1">@item.ProductName</MudText>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Size="Size.Small"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemoveFromCart(item))" />
+                                </div>
+                                <div class="d-flex justify-space-between align-center">
+                                    <div class="d-flex align-center">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => DecreaseQuantity(item))" />
+                                        <MudText Typo="Typo.body1" Class="mx-2">@item.Quantity</MudText>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => IncreaseQuantity(item))" />
+                                    </div>
+                                    <MudText Typo="Typo.body1">@((item.UnitPrice * item.Quantity).ToString("C2"))</MudText>
+                                </div>
+                            </div>
+                        </MudListItem>
+                        <MudDivider />
+                    }
+                </MudList>
+
+                <MudDivider Class="my-4" />
+
+                <div class="d-flex justify-space-between mb-2">
+                    <MudText Typo="Typo.body1">Ara Toplam:</MudText>
+                    <MudText Typo="Typo.body1">@CalculateSubtotal().ToString("C2")</MudText>
+                </div>
+                <div class="d-flex justify-space-between mb-2">
+                    <MudText Typo="Typo.body1">KDV (@TAX_RATE%):</MudText>
+                    <MudText Typo="Typo.body1">@CalculateTax().ToString("C2")</MudText>
+                </div>
+
+                <MudDivider Class="my-2" />
+
+                <MudStack Row="true" Spacing="2" Class="mb-2">
+                    <MudSelect @bind-Value="_discountType" Label="İndirim Tipi" Variant="Variant.Outlined" Dense="true">
+                        <MudSelectItem Value="@("None")">İndirim Yok</MudSelectItem>
+                        <MudSelectItem Value="@("Percentage")">Yüzde (%)</MudSelectItem>
+                        <MudSelectItem Value="@("Fixed")">Sabit Tutar (TL)</MudSelectItem>
+                    </MudSelect>
+
+                    @if (_discountType != "None")
+                    {
+                        <MudNumericField @bind-Value="_discountAmount"
+                                         Label="@(_discountType == "Percentage" ? "İndirim (%)" : "İndirim (TL)")"
+                                         Variant="Variant.Outlined"
+                                         Dense="true"
+                                         Min="0"
+                                         Max="@(_discountType == "Percentage" ? 100 : 999999)" />
+                    }
+                </MudStack>
+
+                @if (_discountType != "None" && _discountAmount > 0)
+                {
+                    <div class="d-flex justify-space-between mb-2">
+                        <MudText Typo="Typo.body1" Color="Color.Success">
+                            İndirim (@(_discountType == "Percentage" ? $"{_discountAmount}%" : $"{_discountAmount:C2}")):
+                        </MudText>
+                        <MudText Typo="Typo.body1" Color="Color.Success">-@CalculateDiscount().ToString("C2")</MudText>
+                    </div>
+                }
+
+                <MudDivider Class="my-2" />
+
+                <div class="d-flex justify-space-between mb-4">
+                    <MudText Typo="Typo.h6">Toplam:</MudText>
+                    <MudText Typo="Typo.h6" Color="Color.Primary">@CalculateTotalWithDiscount().ToString("C2")</MudText>
+                </div>
+
+                @if (_selectedCustomer != null)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.body2">
+                                <strong>Bu alışverişten kazanılacak puan:</strong> @CalculateEarnedPoints()
+                            </MudText>
+                            <MudText Typo="Typo.caption">
+                                (Her 10 TL için 1 puan)
+                            </MudText>
+                        </MudStack>
+                    </MudAlert>
+
+                    @if (_selectedCustomer.LoyaltyPoints >= 100)
+                    {
+                        <MudCheckBox @bind-Checked="_redeemPoints" Color="Color.Secondary" Class="mb-2">
+                            Sadakat puanı kullan (@_selectedCustomer.LoyaltyPoints puan mevcut)
+                        </MudCheckBox>
+
+                        @if (_redeemPoints)
+                        {
+                            <MudNumericField @bind-Value="_pointsToRedeem"
+                                             Label="Kullanılacak Puan"
+                                             Variant="Variant.Outlined"
+                                             Min="100"
+                                             Max="@_selectedCustomer.LoyaltyPoints"
+                                             Step="100"
+                                             Class="mb-2" />
+
+                            <MudText Typo="Typo.caption" Class="mb-3">
+                                100 puan = 10 TL indirim
+                            </MudText>
+
+                            <div class="d-flex justify-space-between mb-3">
+                                <MudText Typo="Typo.body1" Color="Color.Success">Puan İndirimi:</MudText>
+                                <MudText Typo="Typo.body1" Color="Color.Success">-@CalculatePointsDiscount().ToString("C2")</MudText>
+                            </div>
+
+                            <div class="d-flex justify-space-between mb-3">
+                                <MudText Typo="Typo.h6">Ödenecek Tutar:</MudText>
+                                <MudText Typo="Typo.h6" Color="Color.Primary">@CalculateFinalTotal().ToString("C2")</MudText>
+                            </div>
+                        }
+                    }
+                }
+
+                <MudDivider Class="my-4" />
+
+                <MudText Typo="Typo.h6" Class="mb-2">Ödemeler</MudText>
+
+                @if (_payments.Any())
+                {
+                    <MudList Dense="true" Class="mb-2">
+                        @foreach (var payment in _payments)
+                        {
+                            <MudListItem>
+                                <div class="d-flex justify-space-between align-center">
+                                    <div>
+                                        <MudText Typo="Typo.body2">@GetPaymentMethodName(payment.Method)</MudText>
+                                        <MudText Typo="Typo.caption">@payment.Amount.ToString("C2")</MudText>
+                                    </div>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Size="Size.Small"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemovePayment(payment))" />
+                                </div>
+                            </MudListItem>
+                        }
+                    </MudList>
+
+                    <div class="d-flex justify-space-between mb-2">
+                        <MudText Typo="Typo.body1">Toplam Ödenen:</MudText>
+                        <MudText Typo="Typo.h6" Color="Color.Primary">@GetTotalPaid().ToString("C2")</MudText>
+                    </div>
+
+                    <div class="d-flex justify-space-between mb-2">
+                        <MudText Typo="Typo.body1">Kalan:</MudText>
+                        <MudText Typo="Typo.h6" Color="@(GetRemainingAmount() > 0 ? Color.Warning : Color.Success)">
+                            @GetRemainingAmount().ToString("C2")
+                        </MudText>
+                    </div>
+                }
+
+                @if (GetRemainingAmount() > 0)
+                {
+                    <MudStack Spacing="2" Class="mt-2">
+                        <MudSelect @bind-Value="_newPaymentMethod" Label="Ödeme Yöntemi" Variant="Variant.Outlined" Dense="true">
+                            <MudSelectItem Value="@("Cash")">Nakit</MudSelectItem>
+                            <MudSelectItem Value="@("CreditCard")">Kredi Kartı</MudSelectItem>
+                            <MudSelectItem Value="@("DebitCard")">Banka Kartı</MudSelectItem>
+                        </MudSelect>
+
+                        <MudNumericField @bind-Value="_newPaymentAmount"
+                                         Label="Tutar"
+                                         Variant="Variant.Outlined"
+                                         Dense="true"
+                                         Min="0"
+                                         Max="@GetRemainingAmount()"
+                                         Adornment="Adornment.Start"
+                                         AdornmentText="₺" />
+
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   FullWidth="true"
+                                   OnClick="AddPayment"
+                                   Disabled="@(_newPaymentAmount <= 0)">
+                            Ödeme Ekle
+                        </MudButton>
+
+                        <MudButton Variant="Variant.Text"
+                                   Color="Color.Primary"
+                                   FullWidth="true"
+                                   OnClick="AddRemainingAsPayment"
+                                   Disabled="@(GetRemainingAmount() <= 0)">
+                            Kalanı Ekle (@GetRemainingAmount().ToString("C2"))
+                        </MudButton>
+                    </MudStack>
+                }
+
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Success"
+                           FullWidth="true"
+                           Size="Size.Large"
+                           Class="mt-4"
+                           Disabled="@(_isProcessing || !CanCompleteSale())"
+                           OnClick="CompleteSale">
+                    @if (_isProcessing)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        <span class="ml-2">İşleniyor...</span>
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="mr-2" />
+                        <span>Satışı Tamamla</span>
+                    }
+                </MudButton>
+
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           FullWidth="true"
+                           Class="mt-2"
+                           Disabled="@_isProcessing"
+                           OnClick="ClearCart">
+                    <MudIcon Icon="@Icons.Material.Filled.Clear" Class="mr-2" />
+                    <span>Sepeti Temizle</span>
+                </MudButton>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private const decimal TAX_RATE = 20m;
+
+    private string _searchTerm = string.Empty;
+    private List<ProductDto>? _searchResults;
+    private List<CartItem> _cartItems = new();
+    private List<PaymentItem> _payments = new();
+    private string _newPaymentMethod = "Cash";
+    private decimal _newPaymentAmount = 0;
+    private bool _isProcessing = false;
+    private CustomerDto? _selectedCustomer;
+    private bool _redeemPoints = false;
+    private int _pointsToRedeem = 0;
+    private string _discountType = "None";
+    private decimal _discountAmount = 0;
+    private ShiftResponse? _currentShift;
+    private Guid _currentEmployeeId;
+
+    private class CartItem
+    {
+        public Guid ProductId { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public int Quantity { get; set; }
+        public decimal UnitPrice { get; set; }
+    }
+
+    private class PaymentItem
+    {
+        public string Method { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+    }
+
+    private async Task OnSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchProducts();
+        }
+    }
+
+    private async Task SearchProducts()
+    {
+        if (string.IsNullOrWhiteSpace(_searchTerm))
+            return;
+
+        try
+        {
+            _searchResults = await ProductsClient.SearchProductsAsync(_searchTerm);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Ürün arama hatası: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void AddProductToCart(ProductDto product)
+    {
+        var existingItem = _cartItems.FirstOrDefault(i => i.ProductId == product.Id);
+        if (existingItem != null)
+        {
+            existingItem.Quantity++;
+        }
+        else
+        {
+            _cartItems.Add(new CartItem
+            {
+                ProductId = product.Id,
+                ProductName = product.Name,
+                Quantity = 1,
+                UnitPrice = product.Price
+            });
+        }
+
+        _searchTerm = string.Empty;
+        _searchResults = null;
+        Snackbar.Add($"{product.Name} sepete eklendi", Severity.Success);
+    }
+
+    private void RemoveFromCart(CartItem item)
+    {
+        _cartItems.Remove(item);
+        Snackbar.Add("Ürün sepetten kaldırıldı", Severity.Info);
+    }
+
+    private void IncreaseQuantity(CartItem item)
+    {
+        item.Quantity++;
+    }
+
+    private void DecreaseQuantity(CartItem item)
+    {
+        if (item.Quantity > 1)
+        {
+            item.Quantity--;
+        }
+        else
+        {
+            RemoveFromCart(item);
+        }
+    }
+
+    private decimal CalculateSubtotal()
+    {
+        return _cartItems.Sum(i => i.UnitPrice * i.Quantity);
+    }
+
+    private decimal CalculateTax()
+    {
+        return CalculateSubtotal() * (TAX_RATE / 100);
+    }
+
+    private decimal CalculateTotal()
+    {
+        return CalculateSubtotal() + CalculateTax();
+    }
+
+    private decimal CalculateDiscount()
+    {
+        if (_discountType == "None" || _discountAmount == 0)
+            return 0;
+
+        var total = CalculateTotal();
+
+        if (_discountType == "Percentage")
+        {
+            return total * (_discountAmount / 100);
+        }
+        else // Fixed
+        {
+            return Math.Min(_discountAmount, total); // Can't discount more than total
+        }
+    }
+
+    private decimal CalculateTotalWithDiscount()
+    {
+        var total = CalculateTotal();
+        var discount = CalculateDiscount();
+        return Math.Max(0, total - discount);
+    }
+
+    private int CalculateEarnedPoints()
+    {
+        // 1 point for every 10 TL spent
+        return (int)(CalculateTotal() / 10);
+    }
+
+    private decimal CalculatePointsDiscount()
+    {
+        if (!_redeemPoints || _pointsToRedeem == 0)
+            return 0;
+
+        // 100 points = 10 TL
+        return (_pointsToRedeem / 100) * 10;
+    }
+
+    private decimal CalculateFinalTotal()
+    {
+        var total = CalculateTotalWithDiscount();
+        var pointsDiscount = CalculatePointsDiscount();
+        return Math.Max(0, total - pointsDiscount);
+    }
+
+    private bool CanCompleteSale()
+    {
+        if (!_cartItems.Any())
+            return false;
+
+        // Check if all payments have been added (remaining amount is 0)
+        return GetRemainingAmount() == 0;
+    }
+
+    private async Task CompleteSale()
+    {
+        _isProcessing = true;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userEmail = authState.User.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email)?.Value;
+
+            // For demo, use a fixed employee ID - in production, get from user profile
+            var employeeId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+            var request = new CreateSaleRequest(
+                EmployeeId: employeeId,
+                CustomerId: _selectedCustomer?.Id,
+                Items: _cartItems.Select(i => new CreateSaleItemRequest(
+                    i.ProductId,
+                    i.ProductName,
+                    i.Quantity,
+                    i.UnitPrice,
+                    TAX_RATE
+                )).ToList(),
+                Payments: _payments.Select(p => new PaymentItemRequest(
+                    p.Method,
+                    p.Amount,
+                    null
+                )).ToList()
+            );
+
+            var result = await SalesClient.CreateSaleAsync(request);
+
+            if (result != null)
+            {
+                // Award loyalty points to customer
+                if (_selectedCustomer != null)
+                {
+                    var pointsEarned = CalculateEarnedPoints();
+                    await CustomersClient.AddLoyaltyPointsAsync(_selectedCustomer.Id, pointsEarned);
+
+                    // Redeem points if requested
+                    if (_redeemPoints && _pointsToRedeem > 0)
+                    {
+                        await CustomersClient.RedeemPointsAsync(_selectedCustomer.Id, _pointsToRedeem);
+                    }
+                }
+
+                Snackbar.Add($"Satış başarılı! Fiş No: {result.SaleNumber}", Severity.Success);
+                ClearCart();
+            }
+            else
+            {
+                Snackbar.Add("Satış oluşturulamadı", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Satış hatası: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private void ClearCart()
+    {
+        _cartItems.Clear();
+        _searchTerm = string.Empty;
+        _searchResults = null;
+        _selectedCustomer = null;
+        _redeemPoints = false;
+        _pointsToRedeem = 0;
+        _discountType = "None";
+        _discountAmount = 0;
+        _payments.Clear();
+        _newPaymentAmount = 0;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var employeeIdClaim = authState.User.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (Guid.TryParse(employeeIdClaim, out var employeeId))
+        {
+            _currentEmployeeId = employeeId;
+            await LoadCurrentShift();
+        }
+    }
+
+    private void AddPayment()
+    {
+        if (_newPaymentAmount <= 0) return;
+
+        var remaining = GetRemainingAmount();
+        var amountToAdd = Math.Min(_newPaymentAmount, remaining);
+
+        _payments.Add(new PaymentItem
+        {
+            Method = _newPaymentMethod,
+            Amount = amountToAdd
+        });
+
+        _newPaymentAmount = 0;
+    }
+
+    private void AddRemainingAsPayment()
+    {
+        var remaining = GetRemainingAmount();
+        if (remaining <= 0) return;
+
+        _payments.Add(new PaymentItem
+        {
+            Method = _newPaymentMethod,
+            Amount = remaining
+        });
+
+        _newPaymentAmount = 0;
+    }
+
+    private void RemovePayment(PaymentItem payment)
+    {
+        _payments.Remove(payment);
+    }
+
+    private decimal GetTotalPaid()
+    {
+        return _payments.Sum(p => p.Amount);
+    }
+
+    private decimal GetRemainingAmount()
+    {
+        var total = _redeemPoints ? CalculateFinalTotal() : CalculateTotalWithDiscount();
+        return Math.Max(0, total - GetTotalPaid());
+    }
+
+    private string GetPaymentMethodName(string method)
+    {
+        return method switch
+        {
+            "Cash" => "Nakit",
+            "CreditCard" => "Kredi Kartı",
+            "DebitCard" => "Banka Kartı",
+            _ => method
+        };
+    }
+
+    private async Task LoadCurrentShift()
+    {
+        try
+        {
+            _currentShift = await SalesClient.GetOpenShiftAsync(_currentEmployeeId);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Vardiya bilgisi yüklenemedi: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task OpenShiftDialog()
+    {
+        var startingCash = 0m;
+        // Simple prompt for starting cash (in real app, would use a dialog)
+        var request = new OpenShiftRequest(_currentEmployeeId, startingCash, "TRY");
+
+        try
+        {
+            var response = await SalesClient.OpenShiftAsync(request);
+            if (response != null)
+            {
+                Snackbar.Add("Vardiya açıldı", Severity.Success);
+                await LoadCurrentShift();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Vardiya açılırken hata: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task CloseShiftDialog()
+    {
+        if (_currentShift == null) return;
+
+        var endingCash = _currentShift.ExpectedCash;
+        var request = new CloseShiftRequest(endingCash, "TRY", null);
+
+        try
+        {
+            var success = await SalesClient.CloseShiftAsync(_currentShift.Id, request);
+            if (success)
+            {
+                Snackbar.Add($"Vardiya kapatıldı. Fark: {(_currentShift.ExpectedCash - _currentShift.StartingCash):C2}", Severity.Success);
+                await LoadCurrentShift();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Vardiya kapatılırken hata: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task<IEnumerable<CustomerDto>> SearchCustomers(string searchTerm)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm) || searchTerm.Length < 2)
+            return Enumerable.Empty<CustomerDto>();
+
+        try
+        {
+            var customers = await CustomersClient.GetAllAsync(searchTerm);
+            return (IEnumerable<CustomerDto>)(customers ?? new List<CustomerDto>());
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Müşteri arama hatası: {ex.Message}", Severity.Error);
+            return Enumerable.Empty<CustomerDto>();
+        }
+    }
+}

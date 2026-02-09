@@ -1,0 +1,194 @@
+@page "/customers"
+@using PosX.Desktop.ApiClient.Services
+@using PosX.Desktop.ApiClient.Models
+@using PosX.Desktop.Components.Dialogs
+@inject CustomersApiClient CustomersClient
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Müşteriler</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="3">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.h5">Müşteri Yönetimi</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">
+                    Yeni Müşteri
+                </MudButton>
+            </MudStack>
+
+            <MudTextField @bind-Value="_searchTerm" Placeholder="Ad, soyad veya telefon ile ara..."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true" DebounceInterval="500" OnDebounceIntervalElapsed="SearchCustomers" />
+
+            @if (_loading)
+            {
+                <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+            }
+            else if (_customers == null || !_customers.Any())
+            {
+                <MudAlert Severity="Severity.Info">Müşteri bulunamadı</MudAlert>
+            }
+            else
+            {
+                <MudDataGrid Items="_customers" Hover="true" Dense="true" Striped="true">
+                    <Columns>
+                        <PropertyColumn Property="x => x.FullName" Title="Ad Soyad" />
+                        <PropertyColumn Property="x => x.Phone" Title="Telefon" />
+                        <PropertyColumn Property="x => x.Email" Title="E-posta" />
+                        <TemplateColumn Title="Sadakat Puanı">
+                            <CellTemplate>
+                                <MudChip Color="Color.Secondary" Size="Size.Small">
+                                    @context.Item.LoyaltyPoints puan
+                                </MudChip>
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Kayıt Tarihi">
+                            <CellTemplate>
+                                @context.Item.JoinedDate.ToString("dd.MM.yyyy")
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Son Alışveriş">
+                            <CellTemplate>
+                                @if (context.Item.LastPurchaseDate.HasValue)
+                                {
+                                    @context.Item.LastPurchaseDate.Value.ToString("dd.MM.yyyy")
+                                }
+                                else
+                                {
+                                    <text>-</text>
+                                }
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="Durum">
+                            <CellTemplate>
+                                @if (context.Item.IsActive)
+                                {
+                                    <MudChip Color="Color.Success" Size="Size.Small">Aktif</MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip Color="Color.Default" Size="Size.Small">Pasif</MudChip>
+                                }
+                            </CellTemplate>
+                        </TemplateColumn>
+                        <TemplateColumn Title="İşlemler">
+                            <CellTemplate>
+                                <MudStack Row="true" Spacing="1">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                   Color="Color.Primary" OnClick="@(() => OpenEditDialog(context.Item))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                   Color="Color.Error" OnClick="@(() => DeactivateCustomer(context.Item))"
+                                                   Disabled="@(!context.Item.IsActive)" />
+                                </MudStack>
+                            </CellTemplate>
+                        </TemplateColumn>
+                    </Columns>
+                </MudDataGrid>
+            }
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private List<CustomerDto>? _customers;
+    private string _searchTerm = string.Empty;
+    private bool _loading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomers();
+    }
+
+    private async Task LoadCustomers()
+    {
+        _loading = true;
+        try
+        {
+            _customers = await CustomersClient.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Müşteriler yüklenirken hata: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SearchCustomers()
+    {
+        _loading = true;
+        try
+        {
+            _customers = await CustomersClient.GetAllAsync(_searchTerm);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Arama hatası: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var parameters = new DialogParameters<CustomerDialog>
+        {
+            { x => x.Customer, null }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CustomerDialog>("Yeni Müşteri", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await LoadCustomers();
+        }
+    }
+
+    private async Task OpenEditDialog(CustomerDto customer)
+    {
+        var parameters = new DialogParameters<CustomerDialog>
+        {
+            { x => x.Customer, customer }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CustomerDialog>("Müşteri Düzenle", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await LoadCustomers();
+        }
+    }
+
+    private async Task DeactivateCustomer(CustomerDto customer)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Müşteriyi Sil",
+            $"{customer.FullName} müşterisini pasif duruma almak istediğinizden emin misiniz?",
+            yesText: "Evet", cancelText: "Hayır");
+
+        if (confirmed == true)
+        {
+            var success = await CustomersClient.DeactivateAsync(customer.Id);
+            if (success)
+            {
+                Snackbar.Add("Müşteri pasif duruma alındı", Severity.Success);
+                await LoadCustomers();
+            }
+            else
+            {
+                Snackbar.Add("Müşteri silinemedi", Severity.Error);
+            }
+        }
+    }
+}

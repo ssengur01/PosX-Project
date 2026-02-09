@@ -1,0 +1,221 @@
+@page "/inventory"
+@attribute [Authorize]
+@using PosX.Desktop.ApiClient.Models
+@using PosX.Desktop.ApiClient.Services
+@inject InventoryApiClient InventoryClient
+@inject ProductsApiClient ProductsClient
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>PosX - Stok Yönetimi</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Stok Yönetimi</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2">
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_searchTerm"
+                          Label="Ara (Ürün ID)"
+                          Variant="Variant.Outlined"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          OnAdornmentClick="LoadInventory"
+                          Immediate="false" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSwitch @bind-Checked="_showLowStockOnly" Color="Color.Warning" Label="Sadece Düşük Stok" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="LoadInventory"
+                       FullWidth="true">
+                Yenile
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_isLoading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="my-4" />
+}
+else if (_inventoryItems == null || !_inventoryItems.Any())
+{
+    <MudAlert Severity="Severity.Info">Stok kaydı bulunamadı</MudAlert>
+}
+else
+{
+    <MudPaper Elevation="2">
+        <MudTable Items="@GetFilteredItems()" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Ürün ID</MudTh>
+                <MudTh>Ürün Adı</MudTh>
+                <MudTh>Mevcut Stok</MudTh>
+                <MudTh>Yeniden Sipariş Seviyesi</MudTh>
+                <MudTh>Durum</MudTh>
+                <MudTh>Son Güncelleme</MudTh>
+                <MudTh>İşlemler</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Ürün ID">@context.ProductId.ToString().Substring(0, 8)...</MudTd>
+                <MudTd DataLabel="Ürün Adı">
+                    @if (_productNames.ContainsKey(context.ProductId))
+                    {
+                        @_productNames[context.ProductId]
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Yükleniyor...</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Mevcut Stok">
+                    <MudText Typo="Typo.body1" Color="@(context.IsLowStock ? Color.Error : Color.Default)">
+                        <strong>@context.Quantity</strong>
+                    </MudText>
+                </MudTd>
+                <MudTd DataLabel="Yeniden Sipariş Seviyesi">@context.ReorderLevel</MudTd>
+                <MudTd DataLabel="Durum">
+                    @if (context.IsLowStock)
+                    {
+                        <MudChip Color="Color.Error" Size="Size.Small">Düşük Stok</MudChip>
+                    }
+                    else if (context.Quantity == 0)
+                    {
+                        <MudChip Color="Color.Dark" Size="Size.Small">Tükendi</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip Color="Color.Success" Size="Size.Small">Yeterli</MudChip>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Son Güncelleme">@context.LastUpdated.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</MudTd>
+                <MudTd DataLabel="İşlemler">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   OnClick="@(() => OpenAdjustStockDialog(context))"
+                                   Title="Stok Ayarla" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mt-4" Elevation="2">
+        <MudGrid>
+            <MudItem xs="12" md="3">
+                <MudText Typo="Typo.h6">Toplam Ürün</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Primary">@_inventoryItems.Count</MudText>
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudText Typo="Typo.h6">Düşük Stok</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Warning">@_inventoryItems.Count(i => i.IsLowStock)</MudText>
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudText Typo="Typo.h6">Tükenen Ürünler</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Error">@_inventoryItems.Count(i => i.Quantity == 0)</MudText>
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudText Typo="Typo.h6">Toplam Stok</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Success">@_inventoryItems.Sum(i => i.Quantity)</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+@code {
+    private List<InventoryItemDto> _inventoryItems = new();
+    private Dictionary<Guid, string> _productNames = new();
+    private bool _isLoading = false;
+    private string _searchTerm = string.Empty;
+    private bool _showLowStockOnly = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInventory();
+    }
+
+    private async Task LoadInventory()
+    {
+        _isLoading = true;
+        try
+        {
+            var items = await InventoryClient.GetAllStockLevelsAsync();
+            if (items != null)
+            {
+                _inventoryItems = items;
+                await LoadProductNames();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Stok yükleme hatası: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadProductNames()
+    {
+        foreach (var item in _inventoryItems)
+        {
+            if (!_productNames.ContainsKey(item.ProductId))
+            {
+                try
+                {
+                    var product = await ProductsClient.GetProductByIdAsync(item.ProductId);
+                    if (product != null)
+                    {
+                        _productNames[item.ProductId] = product.Name;
+                    }
+                }
+                catch
+                {
+                    _productNames[item.ProductId] = "Bilinmeyen Ürün";
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private IEnumerable<InventoryItemDto> GetFilteredItems()
+    {
+        var filtered = _inventoryItems.AsEnumerable();
+
+        if (_showLowStockOnly)
+        {
+            filtered = filtered.Where(i => i.IsLowStock);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            filtered = filtered.Where(i => i.ProductId.ToString().Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return filtered;
+    }
+
+    private async Task OpenAdjustStockDialog(InventoryItemDto item)
+    {
+        var parameters = new DialogParameters
+        {
+            ["InventoryItem"] = item,
+            ["ProductName"] = _productNames.ContainsKey(item.ProductId) ? _productNames[item.ProductId] : "Bilinmeyen"
+        };
+
+        var dialog = await DialogService.ShowAsync<AdjustStockDialog>("Stok Ayarlama", parameters, new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        });
+
+        var result = await dialog.Result;
+        if (!result.Canceled)
+        {
+            await LoadInventory();
+        }
+    }
+}

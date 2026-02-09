@@ -1,0 +1,176 @@
+@page "/reports"
+@using PosX.Desktop.ApiClient.Services
+@using PosX.Desktop.ApiClient.Models
+@using PosX.Desktop.Components.Dialogs
+@inject ReportsApiClient ReportsClient
+@inject SalesApiClient SalesClient
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Raporlar</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.h5">Satış Raporları</MudText>
+
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
+                <MudDatePicker Label="Başlangıç Tarihi" @bind-Date="_startDate" />
+                <MudDatePicker Label="Bitiş Tarihi" @bind-Date="_endDate" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadReports">
+                    Rapor Oluştur
+                </MudButton>
+            </MudStack>
+
+            @if (_loading)
+            {
+                <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+            }
+
+            @if (_dailyReport != null && _dailyReport.Any())
+            {
+                <MudText Typo="Typo.h6" Class="mt-4">Günlük Satış Raporu</MudText>
+                <MudDataGrid Items="_dailyReport" Dense="true" Hover="true">
+                    <Columns>
+                        <PropertyColumn Property="x => x.Date" Title="Tarih" Format="dd.MM.yyyy" />
+                        <PropertyColumn Property="x => x.TotalSales" Title="Toplam Satış" Format="C2" />
+                        <PropertyColumn Property="x => x.TransactionCount" Title="İşlem Sayısı" />
+                        <PropertyColumn Property="x => x.AverageSale" Title="Ortalama Satış" Format="C2" />
+                    </Columns>
+                </MudDataGrid>
+
+                <MudText Typo="Typo.h6" Class="mt-2">
+                    <strong>Toplam:</strong> @_dailyReport.Sum(r => r.TotalSales).ToString("C2")
+                </MudText>
+            }
+
+            @if (_employeeReport != null && _employeeReport.Any())
+            {
+                <MudText Typo="Typo.h6" Class="mt-4">Çalışan Bazında Satış Raporu</MudText>
+                <MudDataGrid Items="_employeeReport" Dense="true" Hover="true">
+                    <Columns>
+                        <PropertyColumn Property="x => x.EmployeeName" Title="Çalışan" />
+                        <PropertyColumn Property="x => x.TotalSales" Title="Toplam Satış" Format="C2" />
+                        <PropertyColumn Property="x => x.TransactionCount" Title="İşlem Sayısı" />
+                        <PropertyColumn Property="x => x.Commission" Title="Komisyon" Format="C2" />
+                    </Columns>
+                </MudDataGrid>
+            }
+
+            @if (!_loading && (_dailyReport == null || !_dailyReport.Any()))
+            {
+                <MudAlert Severity="Severity.Info">
+                    Seçilen tarih aralığında rapor verisi bulunamadı. Lütfen farklı bir tarih aralığı deneyin.
+                </MudAlert>
+            }
+
+            @if (_salesHistory != null && _salesHistory.Any())
+            {
+                <MudText Typo="Typo.h6" Class="mt-4">Satış Geçmişi</MudText>
+                <MudDataGrid Items="_salesHistory" Dense="true" Hover="true">
+                    <Columns>
+                        <PropertyColumn Property="x => x.SaleNumber" Title="Satış No" />
+                        <PropertyColumn Property="x => x.SaleDate" Title="Tarih" Format="dd.MM.yyyy HH:mm" />
+                        <PropertyColumn Property="x => x.Total" Title="Toplam" Format="C2" />
+                        <PropertyColumn Property="x => x.Status" Title="Durum" />
+                        <TemplateColumn Title="İşlemler">
+                            <CellTemplate>
+                                @if (context.Item.Status == "Completed")
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text"
+                                               OnClick="@(() => OpenRefundDialog(context.Item))">
+                                        İade
+                                    </MudButton>
+                                }
+                                else if (context.Item.Status == "Refunded")
+                                {
+                                    <MudChip Size="Size.Small" Color="Color.Error">İade Edildi</MudChip>
+                                }
+                            </CellTemplate>
+                        </TemplateColumn>
+                    </Columns>
+                </MudDataGrid>
+            }
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private DateTime? _startDate = DateTime.Today.AddDays(-7);
+    private DateTime? _endDate = DateTime.Today;
+    private bool _loading = false;
+
+    private List<SalesReportItemDto>? _dailyReport;
+    private List<SalesByEmployeeItemDto>? _employeeReport;
+    private List<SaleResponse>? _salesHistory;
+
+    private async Task LoadReports()
+    {
+        if (!_startDate.HasValue || !_endDate.HasValue)
+        {
+            Snackbar.Add("Lütfen başlangıç ve bitiş tarihlerini seçin", Severity.Warning);
+            return;
+        }
+
+        if (_startDate > _endDate)
+        {
+            Snackbar.Add("Başlangıç tarihi bitiş tarihinden sonra olamaz", Severity.Warning);
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            var dailyTask = ReportsClient.GetDailySalesReportAsync(_startDate.Value, _endDate.Value);
+            var employeeTask = ReportsClient.GetSalesByEmployeeReportAsync(_startDate.Value, _endDate.Value);
+            var salesHistoryTask = SalesClient.GetSalesAsync(_startDate.Value, _endDate.Value);
+
+            await Task.WhenAll(dailyTask, employeeTask, salesHistoryTask);
+
+            _dailyReport = await dailyTask;
+            _employeeReport = await employeeTask;
+            _salesHistory = await salesHistoryTask;
+
+            if (_dailyReport == null || !_dailyReport.Any())
+            {
+                Snackbar.Add("Rapor verisi bulunamadı", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add("Raporlar başarıyla oluşturuldu", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Hata: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenRefundDialog(SaleResponse sale)
+    {
+        var parameters = new DialogParameters<RefundDialog>
+        {
+            { x => x.Sale, sale }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            CloseButton = true,
+            DisableBackdropClick = true
+        };
+
+        var dialog = await DialogService.ShowAsync<RefundDialog>("İade İşlemi", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await LoadReports();
+        }
+    }
+}

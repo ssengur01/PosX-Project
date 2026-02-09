@@ -1,0 +1,157 @@
+@page "/"
+@using PosX.Desktop.ApiClient.Services
+@using PosX.Desktop.ApiClient.Models
+@inject ReportsApiClient ReportsClient
+@inject ISnackbar Snackbar
+
+<PageTitle>PosX - Dashboard</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+    <MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else if (_kpis == null)
+    {
+        <MudAlert Severity="Severity.Error">KPI verileri yüklenemedi</MudAlert>
+    }
+    else
+    {
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Bugünkü Satışlar</MudText>
+                                <MudText Typo="Typo.h4">@_kpis.TodaySales.ToString("C2")</MudText>
+                                <MudText Typo="Typo.caption">@_kpis.TodayTransactions işlem</MudText>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.AttachMoney" Size="Size.Large" Color="Color.Success" />
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Aylık Satışlar</MudText>
+                                <MudText Typo="Typo.h4">@_kpis.MonthlySales.ToString("C2")</MudText>
+                                <MudText Typo="Typo.caption">Bu ay toplam</MudText>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Large" Color="Color.Primary" />
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Düşük Stok Uyarısı</MudText>
+                                <MudText Typo="Typo.h4">@_kpis.LowStockCount</MudText>
+                                <MudText Typo="Typo.caption">Ürün dikkat gerektiriyor</MudText>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.Warning" Size="Size.Large" Color="Color.Warning" />
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Aktif Müşteriler</MudText>
+                                <MudText Typo="Typo.h4">@_kpis.ActiveCustomersCount</MudText>
+                                <MudText Typo="Typo.caption">Kayıtlı müşteri</MudText>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.People" Size="Size.Large" Color="Color.Info" />
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Toplam Çalışan</MudText>
+                                <MudText Typo="Typo.h4">@_kpis.TotalEmployees</MudText>
+                                <MudText Typo="Typo.caption">Aktif personel</MudText>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.Badge" Size="Size.Large" Color="Color.Secondary" />
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Ortalama Satış</MudText>
+                                <MudText Typo="Typo.h4">
+                                    @((_kpis.TodayTransactions > 0 ? _kpis.TodaySales / _kpis.TodayTransactions : 0).ToString("C2"))
+                                </MudText>
+                                <MudText Typo="Typo.caption">Bugün ortalama</MudText>
+                            </div>
+                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" Size="Size.Large" Color="Color.Tertiary" />
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadKpis">
+                Yenile
+            </MudButton>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                Son güncelleme: @DateTime.Now.ToString("HH:mm:ss")
+            </MudText>
+        </MudStack>
+    }
+</MudContainer>
+
+@code {
+    private DashboardKpiDto? _kpis;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKpis();
+    }
+
+    private async Task LoadKpis()
+    {
+        _loading = true;
+        try
+        {
+            _kpis = await ReportsClient.GetDashboardKpisAsync();
+            if (_kpis == null)
+            {
+                Snackbar.Add("KPI verileri yüklenemedi", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Hata: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

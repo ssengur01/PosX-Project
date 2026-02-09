@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # SQL Server 2022 - Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: posx-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=Password1234
+      - MSSQL_SA_PASSWORD=Password1234
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - posx-network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Password1234 -Q "SELECT 1" || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # RabbitMQ - Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: posx-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=posx
+      - RABBITMQ_DEFAULT_PASS=posx123
+      - RABBITMQ_DEFAULT_VHOST=/
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - posx-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis - Caching
+  redis:
+    image: redis:7-alpine
+    container_name: posx-redis
+    command: redis-server --requirepass posx123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - posx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Seq - Logging
+  seq:
+    image: datalust/seq:latest
+    container_name: posx-seq
+    environment:
+      - ACCEPT_EULA=Y
+    ports:
+      - "5341:80"  # Seq UI and ingestion
+    volumes:
+      - seq_data:/data
+    networks:
+      - posx-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Volumes for data persistence
+volumes:
+  sqlserver_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  redis_data:
+    driver: local
+  seq_data:
+    driver: local
+
+# Network for inter-service communication
+networks:
+  posx-network:
+    driver: bridge

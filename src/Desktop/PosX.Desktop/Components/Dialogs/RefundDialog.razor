@@ -1,0 +1,131 @@
+@using PosX.Desktop.ApiClient.Models
+@using PosX.Desktop.ApiClient.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject SalesApiClient SalesClient
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h6" Class="mb-2">İade İşlemi</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+            Satış No: <strong>@Sale.SaleNumber</strong>
+        </MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+            Toplam Tutar: <strong>@Sale.Total.ToString("C2")</strong>
+        </MudText>
+
+        <MudNumericField @bind-Value="_refundAmount"
+                         Label="İade Tutarı"
+                         Variant="Variant.Outlined"
+                         Min="0"
+                         Max="@Sale.Total"
+                         Adornment="Adornment.Start"
+                         AdornmentText="₺"
+                         Class="mb-4" />
+
+        <MudCheckBox @bind-Value="_isFullRefund"
+                     @bind-Value:after="OnFullRefundChanged"
+                     Label="Tam İade"
+                     Color="Color.Primary"
+                     Class="mb-4"
+                     T="bool" />
+
+        <MudTextField @bind-Value="_reason"
+                      Label="İade Sebebi"
+                      Variant="Variant.Outlined"
+                      Lines="3"
+                      Required="true"
+                      Class="mb-4" />
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="@_isProcessing">İptal</MudButton>
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   OnClick="Submit"
+                   Disabled="@(_isProcessing || string.IsNullOrWhiteSpace(_reason) || _refundAmount <= 0)">
+            @if (_isProcessing)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <span class="ml-2">İade İşleniyor...</span>
+            }
+            else
+            {
+                <span>İade İşle</span>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public SaleResponse Sale { get; set; } = null!;
+
+    private decimal _refundAmount;
+    private bool _isFullRefund = true;
+    private string _reason = string.Empty;
+    private bool _isProcessing = false;
+    private string _errorMessage = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _refundAmount = Sale.Total;
+    }
+
+    private void OnFullRefundChanged()
+    {
+        if (_isFullRefund)
+        {
+            _refundAmount = Sale.Total;
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task Submit()
+    {
+        _isProcessing = true;
+        _errorMessage = string.Empty;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userName = authState.User.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Name)?.Value ?? "User";
+
+            var request = new ProcessRefundRequest(
+                _refundAmount,
+                Sale.Currency,
+                _reason,
+                userName
+            );
+
+            var response = await SalesClient.ProcessRefundAsync(Sale.Id, request);
+
+            if (response != null)
+            {
+                Snackbar.Add($"İade işlemi başarıyla tamamlandı. İade No: {response.RefundId}", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                _errorMessage = "İade işlenirken hata oluştu";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Hata: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}

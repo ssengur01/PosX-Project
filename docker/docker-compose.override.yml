@@ -1,0 +1,11 @@
+version: '3.8'
+
+# Override file for development-specific settings
+services:
+  sqlserver:
+    environment:
+      - MSSQL_MEMORY_LIMIT_MB=2048
+
+  rabbitmq:
+    environment:
+      - RABBITMQ_VM_MEMORY_HIGH_WATERMARK=512MB

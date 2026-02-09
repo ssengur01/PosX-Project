@@ -1,0 +1,101 @@
+@page "/login"
+@using Microsoft.AspNetCore.Components.Authorization
+@using PosX.Desktop.ApiClient.Services
+@using PosX.Desktop.Services
+@inject AuthApiClient AuthClient
+@inject CustomAuthStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>PosX - Giriş</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Elevation="3" Class="pa-8">
+        <MudText Typo="Typo.h4" Align="Align.Center" GutterBottom="true">
+            <MudIcon Icon="@Icons.Material.Filled.PointOfSale" Size="Size.Large" /> PosX
+        </MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Class="mb-4">Satış Yönetim Sistemi</MudText>
+
+        <EditForm Model="@_loginModel" OnValidSubmit="HandleLogin">
+            <MudTextField @bind-Value="_loginModel.EmailOrUsername"
+                          Label="Kullanıcı Adı veya Email"
+                          Variant="Variant.Outlined"
+                          Class="mb-4"
+                          Required="true" />
+
+            <MudTextField @bind-Value="_loginModel.Password"
+                          Label="Şifre"
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Password"
+                          Class="mb-4"
+                          Required="true" />
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+            }
+
+            <MudButton ButtonType="ButtonType.Submit"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       FullWidth="true"
+                       Disabled="@_isLoading">
+                @if (_isLoading)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span class="ml-2">Giriş yapılıyor...</span>
+                }
+                else
+                {
+                    <span>Giriş Yap</span>
+                }
+            </MudButton>
+        </EditForm>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private LoginModel _loginModel = new();
+    private bool _isLoading = false;
+    private string _errorMessage = string.Empty;
+
+    private async Task HandleLogin()
+    {
+        _isLoading = true;
+        _errorMessage = string.Empty;
+
+        try
+        {
+            var response = await AuthClient.LoginAsync(_loginModel.EmailOrUsername, _loginModel.Password);
+
+            if (response != null)
+            {
+                await AuthStateProvider.MarkUserAsAuthenticated(
+                    response.User.Email,
+                    response.User.Username,
+                    response.User.Roles,
+                    response.AccessToken,
+                    response.RefreshToken);
+
+                Navigation.NavigateTo("/");
+            }
+            else
+            {
+                _errorMessage = "Kullanıcı adı veya şifre hatalı";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Giriş yapılırken hata oluştu: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private class LoginModel
+    {
+        public string EmailOrUsername { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,152 @@
+@using PosX.Desktop.ApiClient.Services
+@using PosX.Desktop.ApiClient.Models
+@using System.ComponentModel.DataAnnotations
+@inject CustomersApiClient CustomersClient
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_isValid">
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_model.FirstName" Label="Ad" Required="true"
+                              RequiredError="Ad gereklidir" />
+
+                <MudTextField @bind-Value="_model.LastName" Label="Soyad" Required="true"
+                              RequiredError="Soyad gereklidir" />
+
+                <MudTextField @bind-Value="_model.Phone" Label="Telefon" Required="true"
+                              RequiredError="Telefon gereklidir"
+                              Mask="@(new PatternMask("0000 000 00 00"))"
+                              HelperText="Örnek: 0555 123 45 67" />
+
+                <MudTextField @bind-Value="_model.Email" Label="E-posta"
+                              InputType="InputType.Email"
+                              Validation="@(new EmailAddressAttribute() { ErrorMessage = "Geçerli bir e-posta adresi girin" })" />
+
+                <MudTextField @bind-Value="_model.Address" Label="Adres" Lines="3" />
+
+                @if (Customer != null)
+                {
+                    <MudAlert Severity="Severity.Info">
+                        <MudStack Row="true" Spacing="2">
+                            <MudText>Sadakat Puanı:</MudText>
+                            <MudChip Color="Color.Secondary" Size="Size.Small">@Customer.LoyaltyPoints puan</MudChip>
+                        </MudStack>
+                    </MudAlert>
+                }
+            </MudStack>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">İptal</MudButton>
+        <MudButton Color="Color.Primary" Disabled="@(!_isValid || _saving)" OnClick="Submit">
+            @if (_saving)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText Class="ms-2">Kaydediliyor...</MudText>
+            }
+            else
+            {
+                <text>Kaydet</text>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private MudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public CustomerDto? Customer { get; set; }
+
+    private MudForm _form = null!;
+    private bool _isValid;
+    private bool _saving;
+    private CustomerFormModel _model = new();
+
+    protected override void OnInitialized()
+    {
+        if (Customer != null)
+        {
+            _model = new CustomerFormModel
+            {
+                FirstName = Customer.FirstName,
+                LastName = Customer.LastName,
+                Phone = Customer.Phone,
+                Email = Customer.Email,
+                Address = Customer.Address
+            };
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        await _form.Validate();
+        if (!_isValid) return;
+
+        _saving = true;
+        try
+        {
+            if (Customer == null)
+            {
+                var request = new CreateCustomerRequest(
+                    _model.FirstName,
+                    _model.LastName,
+                    _model.Phone,
+                    _model.Email,
+                    _model.Address
+                );
+
+                var result = await CustomersClient.CreateAsync(request);
+                if (result != null)
+                {
+                    Snackbar.Add("Müşteri başarıyla oluşturuldu", Severity.Success);
+                    MudDialog.Close(DialogResult.Ok(result));
+                }
+                else
+                {
+                    Snackbar.Add("Müşteri oluşturulamadı", Severity.Error);
+                }
+            }
+            else
+            {
+                var request = new UpdateCustomerRequest(
+                    Customer.Id,
+                    _model.FirstName,
+                    _model.LastName,
+                    _model.Phone,
+                    _model.Email,
+                    _model.Address
+                );
+
+                var result = await CustomersClient.UpdateAsync(Customer.Id, request);
+                if (result != null)
+                {
+                    Snackbar.Add("Müşteri başarıyla güncellendi", Severity.Success);
+                    MudDialog.Close(DialogResult.Ok(result));
+                }
+                else
+                {
+                    Snackbar.Add("Müşteri güncellenemedi", Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Hata: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private class CustomerFormModel
+    {
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? Address { get; set; }
+    }
+}
