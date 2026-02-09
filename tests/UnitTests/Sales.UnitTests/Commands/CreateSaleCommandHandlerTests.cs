@@ -62,20 +62,22 @@ public class CreateSaleCommandHandlerTests
             .Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
 
-        var expectedDto = new SaleDto(
-            Id: Guid.NewGuid(),
-            SaleNumber: "SALE-001",
-            SaleDate: DateTime.UtcNow,
-            EmployeeId: command.EmployeeId,
-            CustomerId: command.CustomerId,
-            Status: "Completed",
-            Subtotal: 200m,
-            DiscountAmount: 0m,
-            TaxAmount: 36m,
-            Total: 236m,
-            Currency: "TRY",
-            Items: new List<SaleItemDto>(),
-            Payments: new List<PaymentDto>());
+        var expectedDto = new SaleDto
+        {
+            Id = Guid.NewGuid(),
+            SaleNumber = "SALE-001",
+            SaleDate = DateTime.UtcNow,
+            EmployeeId = command.EmployeeId,
+            CustomerId = command.CustomerId,
+            Status = "Completed",
+            Subtotal = 200m,
+            DiscountAmount = 0m,
+            TaxAmount = 36m,
+            Total = 236m,
+            Currency = "TRY",
+            Items = new List<SaleItemDto>(),
+            Payments = new List<PaymentDto>()
+        };
 
         _mockMapper
             .Setup(m => m.Map<SaleDto>(It.IsAny<Sale>()))
@@ -128,7 +130,22 @@ public class CreateSaleCommandHandlerTests
 
         _mockMapper
             .Setup(m => m.Map<SaleDto>(It.IsAny<Sale>()))
-            .Returns(new SaleDto(Guid.NewGuid(), "SALE-999", DateTime.UtcNow, command.EmployeeId, null, "Completed", 100m, 0m, 18m, 118m, "TRY", new List<SaleItemDto>(), new List<PaymentDto>()));
+            .Returns(new SaleDto
+            {
+                Id = Guid.NewGuid(),
+                SaleNumber = "SALE-999",
+                SaleDate = DateTime.UtcNow,
+                EmployeeId = command.EmployeeId,
+                CustomerId = null,
+                Status = "Completed",
+                Subtotal = 100m,
+                DiscountAmount = 0m,
+                TaxAmount = 18m,
+                Total = 118m,
+                Currency = "TRY",
+                Items = new List<SaleItemDto>(),
+                Payments = new List<PaymentDto>()
+            });
 
         // Act
         await _handler.Handle(command, CancellationToken.None);
@@ -165,7 +182,22 @@ public class CreateSaleCommandHandlerTests
 
         _mockMapper
             .Setup(m => m.Map<SaleDto>(It.IsAny<Sale>()))
-            .Returns(new SaleDto(Guid.NewGuid(), "SALE-001", DateTime.UtcNow, command.EmployeeId, null, "Completed", 100m, 0m, 18m, 118m, "TRY", new List<SaleItemDto>(), new List<PaymentDto>()));
+            .Returns(new SaleDto
+            {
+                Id = Guid.NewGuid(),
+                SaleNumber = "SALE-001",
+                SaleDate = DateTime.UtcNow,
+                EmployeeId = command.EmployeeId,
+                CustomerId = null,
+                Status = "Completed",
+                Subtotal = 100m,
+                DiscountAmount = 0m,
+                TaxAmount = 18m,
+                Total = 118m,
+                Currency = "TRY",
+                Items = new List<SaleItemDto>(),
+                Payments = new List<PaymentDto>()
+            });
 
         Sale? capturedSale = null;
         _mockSaleRepository
